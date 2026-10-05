@@ -1,4 +1,14 @@
-add_executable(mytest test.c unity_config.c)
+
+set_source_files_properties(../src/hello_freertos.c PROPERTIES COMPILE_DEFINITIONS "main=app_main;UNIT_TEST=1")
+add_executable(mytest test.c unity_config.c ../src/hello_freertos.c)
+
+target_compile_definitions(mytest PRIVATE UNIT_TEST=1)
+
+target_link_options(mytest PRIVATE
+    -Wl,--wrap=xSemaphoreTake
+    -Wl,--wrap=xSemaphoreGive
+    -Wl,--wrap=vTaskDelay
+)
 
 target_link_libraries(mytest PRIVATE
   pico_stdlib
@@ -6,6 +16,7 @@ target_link_libraries(mytest PRIVATE
   FreeRTOS-Kernel-Heap4
   unity
 )
+
 
 # The CYW43 is the Wifi/Bluetooth module. If the board is set to pico_w, this
 # variable will be set and the wireless libraries added.
@@ -17,8 +28,8 @@ endif()
 
 # Modify the below lines to enable/disable output over UART/USB.
 # These are mutually exclusive, only set one.
-pico_enable_stdio_uart(mytest 1)
-pico_enable_stdio_usb(mytest 0)
+pico_enable_stdio_uart(mytest 0)
+pico_enable_stdio_usb(mytest 1)
 
 # This will speed up the simulation, since data won't be copied from the flash controller.
 # It does make the binary non-persistent on a real microcontroller.
@@ -48,4 +59,5 @@ find_program(PICOTOOL picotool)
 
 add_custom_target(flash_test ${PICOTOOL} load -f $<TARGET_FILE:mytest> DEPENDS mytest)
 add_custom_target(openocd_test ${OPENOCD} -s ${OPENOCD_PATH} -f interface/cmsis-dap.cfg -f target/rp2040.cfg -c 'adapter speed 5000' -c 'program "$<TARGET_FILE:mytest>" verify reset exit' DEPENDS mytest)
+
 
