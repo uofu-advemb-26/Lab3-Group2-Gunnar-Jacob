@@ -27,7 +27,9 @@ void setUp(void) {}
 void tearDown(void) {}
 
 int lock_depth = 0;
-SemaphoreHandle_t task_semaphore;
+
+static TaskHandle_t h_main = NULL;
+static TaskHandle_t h_side = NULL;
 
 int __wrap_xSemaphoreTake(SemaphoreHandle_t sem, uint32_t delay) {
     lock_depth++;
@@ -59,37 +61,53 @@ void test_for_orphaned_lock_side(void) {
     TEST_ASSERT_EQUAL_INT_MESSAGE(0, lock_depth, "deadlock detected, test failed");
 }
 
-// void supervisor_task(void *params) {
-//     vTaskDelay(pdMS_TO_TICKS(5000));
+void deadlock_supervisor_task(void *pvParameters)
+{
+    TaskHandle_t test_task_handle = (TaskHandle_t) pvParameters;
+    uint32_t result;
 
-//     eTaskState state_main = eTaskGetState(h_main);
-//     eTaskState state_side = eTaskGetState(h_side);
+    vTaskDelay(pdMS_TO_TICKS(5000));
 
-//     // If BOTH tasks are stuck in eBlocked, they are deadlocked
-//     if (state_main == eBlocked && state_side == eBlocked) {
-//         // clean up deadlocked tasks
-//         vTaskDelete(h_main);
-//         vTaskDelete(h_side);
+    if (eTaskGetState(h_main) == eBlocked &&
+        eTaskGetState(h_side) == eBlocked) {
+        result = 2;
+    } else {
+        result = 1;
+    }
 
-//         TEST_FAIL_MESSAGE("Deadlock detected: Both tasks are permanently in eBlocked state!");
-//     } else {
+    vTaskDelete(h_main);
+    vTaskDelete(h_side);
+    h_main = NULL;
+    h_side = NULL;
 
-//         TEST_PASS();
-//     }
+    xTaskNotify(test_task_handle, result, eSetValueWithOverwrite);
 
-//     vTaskDelete(NULL);
-// }
+    vTaskDelete(NULL);
+}
 
-// void test_concurrent_deadlock_detection(void) {
+void test_concurrent_deadlock_detection(void)
+{
+    uint32_t result = 0;
+    TaskHandle_t test_task_handle = xTaskGetCurrentTaskHandle();
 
-//     xTaskCreate(main_thread, "MainThread", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, &h_main);
-//     xTaskCreate(side_thread, "SideThread", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 1, &h_side);
+        xTaskCreate(main_thread, "MainThread", configMINIMAL_STACK_SIZE, NULL,tskIDLE_PRIORITY + 1, &h_main);
+        xTaskCreate(side_thread, "SideThread", configMINIMAL_STACK_SIZE, NULL,tskIDLE_PRIORITY + 1, &h_side);
 
-//     xTaskCreate(supervisor_task, "Supervisor", configMINIMAL_STACK_SIZE, NULL, tskIDLE_PRIORITY + 2, NULL);
+        xTaskCreate(deadlock_supervisor_task, "Supervisor", configMINIMAL_STACK_SIZE, test_task_handle, tskIDLE_PRIORITY + 2, NULL);
 
-//     vTaskStartScheduler();
-// }
+    // Blocks only test_runner_task. The two workers and supervisor still run.
+    TEST_ASSERT_EQUAL(
+        pdTRUE,
+        xTaskNotifyWait(0, UINT32_MAX, &result,
+                        pdMS_TO_TICKS(6000))
+    );
 
+    TEST_ASSERT_EQUAL_MESSAGE(
+        1,
+        result,
+        "deadlock detected"
+    );
+}
 
 void test_runner_task() {
     cyw43_arch_init();
@@ -104,7 +122,7 @@ void test_runner_task() {
         UNITY_BEGIN();
         on = !on;
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
-        // RUN_TEST(test_concurrent_deadlock_detection);
+        RUN_TEST(test_concurrent_deadlock_detection);
         RUN_TEST(test_for_orphaned_lock_side);
         RUN_TEST(test_for_orphaned_lock_main);
         sleep_ms(2000);
