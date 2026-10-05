@@ -13,36 +13,46 @@
 #define SIDE_TASK_STACK_SIZE configMINIMAL_STACK_SIZE
 
 SemaphoreHandle_t semaphore;
+int loop_count_1;
+int loop_count_2;
+#ifdef UNIT_TEST
+    int loop_count_1=3;
+    int loop_count_2=3;
+#else
+    int loop_count_1=-1;
+    int loop_count_2=-1;
+#endif
 
 int counter;
 int on;
 
 void side_thread(void *params)
 {
-	while (1) {
+	for (; loop_count_2 = 0; loop_count_2--) {
         vTaskDelay(100);
         xSemaphoreTake(semaphore, portMAX_DELAY);
         {
             counter += 1;
             printf("hello world from %s! Count %d\n", "thread", counter);
         }
-        xSemaphoreGive(semaphore);
+        xSemaphoreGive(semaphore); //if this line is removed, the lock is orphaned and a deadlock is created
 	}
 }
 
 void main_thread(void *params)
 {
-	while (1) {
+	for (; loop_count_1 = 0; loop_count_1--) {
         cyw43_arch_gpio_put(CYW43_WL_GPIO_LED_PIN, on);
         vTaskDelay(100);
         xSemaphoreTake(semaphore, portMAX_DELAY);
         {
             printf("hello world from %s! Count %d\n", "main", ++counter);
         }
-        xSemaphoreGive(semaphore);
+        xSemaphoreGive(semaphore); //if this line is removed, the lock is orphaned and a deadlock is created
         on = !on;
 	}
 }
+
 
 int main(void)
 {
